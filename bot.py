@@ -30,6 +30,7 @@ def normalize_url(url):
 
 
 async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     if not update.message or not update.message.text:
         return
 
@@ -38,6 +39,7 @@ async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     urls = re.findall(r'https?://[^\s<>"\']+', text)
 
     for url in urls:
+
         url = normalize_url(url)
 
         # শুধু Facebook URL পরীক্ষা করবে
@@ -57,18 +59,23 @@ async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (url,)
         ).fetchone()
 
+        # একই লিংক আগে থাকলে শুধু তখন রিপ্লাই করবে
         if row:
-            # একই লিংক আগে পাঠানো হয়েছে
+
             first_date, first_user = row
 
             await update.message.reply_text(
-                f"⚠️ এই লিংকটি আগে ব্যবহার করা হয়েছে।\n\n"
+                "⚠️ এই লিংকটি আগে ব্যবহার করা হয়েছে।\n\n"
+                "🚫 একই লিংক দ্বিতীয়বার ব্যবহার করবেন না।\n"
+                "🔗 অনুগ্রহ করে নতুন লিংক ব্যবহার করুন।\n\n"
                 f"📅 প্রথম পাঠানো: {first_date}\n"
                 f"👤 প্রথম পাঠিয়েছেন: {first_user}"
             )
 
         else:
-            # নতুন লিংক — শুধু ডাটাবেজে সেভ করবে
+
+            # নতুন লিংক হলে ডাটাবেজে সংরক্ষণ করবে
+            # কিন্তু কোনো রিপ্লাই দেবে না
             now = datetime.now(timezone.utc).strftime(
                 "%d-%m-%Y %H:%M UTC"
             )
@@ -83,10 +90,9 @@ async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             conn.commit()
 
-            # এখানে কোনো reply নেই
-
 
 def main():
+
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(
