@@ -58,6 +58,7 @@ async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).fetchone()
 
         if row:
+            # একই লিংক আগে পাঠানো হয়েছে
             first_date, first_user = row
 
             await update.message.reply_text(
@@ -67,22 +68,22 @@ async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         else:
+            # নতুন লিংক — শুধু ডাটাবেজে সেভ করবে
             now = datetime.now(timezone.utc).strftime(
                 "%d-%m-%Y %H:%M UTC"
             )
 
             conn.execute(
-                "INSERT INTO links (url, first_date, first_user) "
-                "VALUES (?, ?, ?)",
+                """
+                INSERT INTO links (url, first_date, first_user)
+                VALUES (?, ?, ?)
+                """,
                 (url, now, username)
             )
 
             conn.commit()
 
-            await update.message.reply_text(
-                f"✅ নতুন লিংক।\n"
-                f"📅 প্রথম পাঠানো: {now}"
-            )
+            # এখানে কোনো reply নেই
 
 
 def main():
