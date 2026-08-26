@@ -6,11 +6,13 @@ from datetime import datetime, timezone
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 
+
 TOKEN = os.environ["BOT_TOKEN"]
 
 DB = "links.db"
 
 conn = sqlite3.connect(DB, check_same_thread=False)
+
 conn.execute("""
 CREATE TABLE IF NOT EXISTS links (
     url TEXT PRIMARY KEY,
@@ -18,6 +20,7 @@ CREATE TABLE IF NOT EXISTS links (
     first_user TEXT NOT NULL
 )
 """)
+
 conn.commit()
 
 
@@ -42,6 +45,7 @@ async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
 
         user = update.effective_user
+
         username = (
             f"@{user.username}"
             if user and user.username
@@ -61,13 +65,18 @@ async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📅 প্রথম পাঠানো: {first_date}\n"
                 f"👤 প্রথম পাঠিয়েছেন: {first_user}"
             )
+
         else:
-            now = datetime.now(timezone.utc).strftime("%d-%m-%Y %H:%M UTC")
+            now = datetime.now(timezone.utc).strftime(
+                "%d-%m-%Y %H:%M UTC"
+            )
 
             conn.execute(
-                "INSERT INTO links (url, first_date, first_user) VALUES (?, ?, ?)",
+                "INSERT INTO links (url, first_date, first_user) "
+                "VALUES (?, ?, ?)",
                 (url, now, username)
             )
+
             conn.commit()
 
             await update.message.reply_text(
@@ -87,9 +96,9 @@ def main():
     )
 
     print("Bot is running...")
+
     app.run_polling()
 
 
-
-  if __name__ == "__main__":
+if __name__ == "__main__":
     main()
