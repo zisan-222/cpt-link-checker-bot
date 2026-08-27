@@ -1,11 +1,12 @@
 import os
 import re
 import sqlite3
+import asyncio
 import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from flask import Flask
+from flask import Flask, request
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -19,13 +20,22 @@ from telegram.ext import (
 # =========================
 
 TOKEN = os.environ["BOT_TOKEN"]
+
 DB = "links.db"
 
-# Bangladesh Time
 BD_TZ = ZoneInfo("Asia/Dhaka")
 
-# Render port
 PORT = int(os.environ.get("PORT", 10000))
+
+# Render automatically provides this
+RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
+
+if not RENDER_URL:
+    raise RuntimeError(
+        "RENDER_EXTERNAL_URL environment variable not found."
+    )
+
+WEBHOOK_URL = f"{RENDER_URL}/telegram"
 
 
 # =========================
@@ -61,7 +71,10 @@ def normalize_url(url):
 # TELEGRAM LINK CHECKER
 # =========================
 
-async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def check_link(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     if not update.message or not update.message.text:
         return
@@ -74,7 +87,7 @@ async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text
     )
 
-    # একই মেসেজে একই লিংক একাধিকবার থাকলে একবারই পরীক্ষা করবে
+    # একই মেসেজে একই লিংক একাধিকবার থাকলে একবারই পরীক্ষা
     urls = list(dict.fromkeys(
         normalize_url(url)
         for url in urls
@@ -82,7 +95,7 @@ async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for url in urls:
 
-        # শুধু Facebook / fb.watch লিংক পরীক্ষা করবে
+        # শুধু Facebook / fb.watch
         if (
             "facebook.com" not in url
             and "fb.watch" not in url
@@ -136,7 +149,6 @@ async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         else:
 
-            # Bangladesh local time
             now = datetime.now(BD_TZ)
 
             first_date = now.strftime(
@@ -158,12 +170,11 @@ async def check_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             conn.commit()
 
-            # নতুন লিংকের জন্য কোনো reply যাবে না
-            # শুধু database-এ save হবে
+            # নতুন লিংকে কোনো reply নেই
 
 
 # =========================
-# FLASK WEB SERVER
+# FLASK
 # =========================
 
 web_app = Flask(__name__)
@@ -179,11 +190,101 @@ def health():
     return "OK"
 
 
-def run_web_server():
-    web_app.run(
-        host="0.0.0.0",
-        port=PORT
+# =========================
+# TELEGRAM APPLICATION
+# =========================
+
+telegram_app = (
+    Application.builder()
+    .token(TOKEN)
+    .build()
+)
+
+telegram_app.add_handler(
+    MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        check_link
     )
+)
+
+
+# =========================
+# ASYNCIO LOOP
+# =========================
+
+loop = asyncio.new_event_loop()
+
+
+async def telegram_runner():
+
+    await telegram_app.initialize()
+
+    await telegram_app.start()
+
+    # Remove old webhook first
+    await telegram_app.bot.delete_webhook()
+
+    # Set new webhook
+    await telegram_app.bot.set_webhook(
+        url=WEBHOOK_URL
+    )
+
+    print(
+        f"Telegram webhook set to: {WEBHOOK_URL}"
+    )
+
+    # Keep Telegram application running
+    await asyncio.Event().wait()
+
+
+def start_telegram():
+
+    asyncio.set_event_loop(loop)
+
+    loop.run_until_complete(
+        telegram_runner()
+    )
+
+
+# =========================
+# WEBHOOK ENDPOINT
+# =========================
+
+@web_app.route(
+    "/telegram",
+    methods=["POST"]
+)
+def telegram_webhook():
+
+    try:
+
+        data = request.get_json(
+            force=True
+        )
+
+        update = Update.de_json(
+            data,
+            telegram_app.bot
+        )
+
+        future = asyncio.run_coroutine_threadsafe(
+            telegram_app.process_update(update),
+            loop
+        )
+
+        future.result(
+            timeout=30
+        )
+
+        return "OK", 200
+
+    except Exception as e:
+
+        print(
+            f"Webhook error: {e}"
+        )
+
+        return "ERROR", 500
 
 
 # =========================
@@ -192,27 +293,23 @@ def run_web_server():
 
 def main():
 
-    # Render Web Service-এর জন্য HTTP server
-    server_thread = threading.Thread(
-        target=run_web_server,
+    # Start Telegram in background thread
+    telegram_thread = threading.Thread(
+        target=start_telegram,
         daemon=True
     )
 
-    server_thread.start()
+    telegram_thread.start()
 
-    # Telegram bot
-    app = Application.builder().token(TOKEN).build()
-
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            check_link
-        )
+    print(
+        f"Starting web server on port {PORT}"
     )
 
-    print("Bot is running...")
-
-    app.run_polling()
+    # Start Render web server
+    web_app.run(
+        host="0.0.0.0",
+        port=PORT
+    )
 
 
 # =========================
